@@ -1,0 +1,11 @@
+# Object files
+*.o
+
+# Executable
+simfs
+
+# Editor/IDE files
+*.swp
+*.swo
+*~
+.DS_Store
