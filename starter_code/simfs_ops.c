@@ -114,7 +114,45 @@ count_free_blocks(fnode *fnodes)
     return count;
 }
 
-/* File system operations: creating, deleting, reading from, and writing to files.
- */
+/* File system operations */
 
-// TODO: implement createfile, deletefile, readfile, writefile
+/* Creates an empty file with the given name. */
+void
+createfile(char *fsname, char *filename)
+{
+    fentry files[MAXFILES];
+    fnode fnodes[MAXBLOCKS];
+    int slot;
+    FILE *fp;
+
+    if (strlen(filename) > 11) {
+        fprintf(stderr, "Error: createfile: filename too long\n");
+        exit(1);
+    }
+
+    fp = openfs(fsname, "r+b");
+    load_metadata(fp, files, fnodes);
+
+    if (find_file(files, filename) != -1) {
+        fprintf(stderr, "Error: createfile: file already exists\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    slot = find_free_fentry(files);
+    if (slot == -1) {
+        fprintf(stderr, "Error: createfile: no free file slots\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    strncpy(files[slot].name, filename, 11);
+    files[slot].name[11] = '\0';
+    files[slot].size = 0;
+    files[slot].firstblock = -1;
+
+    save_metadata(fp, files, fnodes);
+    closefs(fp);
+}
+
+// TODO: implement deletefile, readfile, writefile
