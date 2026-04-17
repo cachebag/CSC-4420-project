@@ -155,4 +155,49 @@ createfile(char *fsname, char *filename)
     closefs(fp);
 }
 
-// TODO: implement deletefile, readfile, writefile
+/* Deletes a file and zeros out its data blocks. */
+void
+deletefile(char *fsname, char *filename)
+{
+    fentry files[MAXFILES];
+    fnode fnodes[MAXBLOCKS];
+    int file_idx;
+    short curr, next;
+    char zeros[BLOCKSIZE];
+    FILE *fp;
+
+    fp = openfs(fsname, "r+b");
+    load_metadata(fp, files, fnodes);
+
+    file_idx = find_file(files, filename);
+    if (file_idx == -1) {
+        fprintf(stderr, "Error: deletefile: file not found\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    memset(zeros, 0, BLOCKSIZE);
+
+    curr = files[file_idx].firstblock;
+    while (curr != -1) {
+        /* Zero out the data block */
+        fseek(fp, fnodes[curr].blockindex * BLOCKSIZE, SEEK_SET);
+        fwrite(zeros, BLOCKSIZE, 1, fp);
+
+        /* Free the fnode */
+        next = fnodes[curr].nextblock;
+        fnodes[curr].blockindex = -curr;
+        fnodes[curr].nextblock = -1;
+        curr = next;
+    }
+
+    /* Clear the file entry */
+    files[file_idx].name[0] = '\0';
+    files[file_idx].size = 0;
+    files[file_idx].firstblock = -1;
+
+    save_metadata(fp, files, fnodes);
+    closefs(fp);
+}
+
+// TODO: implement readfile, writefile
