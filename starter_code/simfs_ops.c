@@ -200,4 +200,67 @@ deletefile(char *fsname, char *filename)
     closefs(fp);
 }
 
-// TODO: implement readfile, writefile
+/* Reads length bytes starting at position start from a file. */
+void
+readfile(char *fsname, char *filename, int start, int length)
+{
+    fentry files[MAXFILES];
+    fnode fnodes[MAXBLOCKS];
+    int file_idx;
+    short curr;
+    int pos, bytes_left, offset_in_block, bytes_to_read;
+    char buf[BLOCKSIZE];
+    FILE *fp;
+
+    fp = openfs(fsname, "rb");
+    load_metadata(fp, files, fnodes);
+
+    file_idx = find_file(files, filename);
+    if (file_idx == -1) {
+        fprintf(stderr, "Error: readfile: file not found\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    if (start < 0 || start >= files[file_idx].size) {
+        fprintf(stderr, "Error: readfile: invalid start position\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    if (length < 0 || start + length > files[file_idx].size) {
+        fprintf(stderr, "Error: readfile: read exceeds file size\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    /* Skip to the block containing start position */
+    curr = files[file_idx].firstblock;
+    pos = 0;
+    while (pos + BLOCKSIZE <= start) {
+        curr = fnodes[curr].nextblock;
+        pos += BLOCKSIZE;
+    }
+
+    /* Read the data */
+    bytes_left = length;
+    while (bytes_left > 0 && curr != -1) {
+        offset_in_block = start + (length - bytes_left) - pos;
+        bytes_to_read = BLOCKSIZE - offset_in_block;
+        if (bytes_to_read > bytes_left) {
+            bytes_to_read = bytes_left;
+        }
+
+        fseek(fp, fnodes[curr].blockindex * BLOCKSIZE + offset_in_block, SEEK_SET);
+        fread(buf, 1, bytes_to_read, fp);
+        fwrite(buf, 1, bytes_to_read, stdout);
+
+        bytes_left -= bytes_to_read;
+        curr = fnodes[curr].nextblock;
+        pos += BLOCKSIZE;
+    }
+
+    closefs(fp);
+}
+
+// TODO: implement writefile
