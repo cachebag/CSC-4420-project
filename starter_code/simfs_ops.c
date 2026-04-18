@@ -263,4 +263,122 @@ readfile(char *fsname, char *filename, int start, int length)
     closefs(fp);
 }
 
-// TODO: implement writefile
+/* Writes length bytes from stdin to a file starting at position start. */
+void
+writefile(char *fsname, char *filename, int start, int length)
+{
+    fentry files[MAXFILES];
+    fnode fnodes[MAXBLOCKS];
+    int file_idx;
+    int current_size, new_size;
+    int current_blocks, needed_blocks, blocks_to_add;
+    short curr;
+    short *last_ptr;
+    int free_idx;
+    int pos, bytes_left, offset_in_block, bytes_to_write;
+    char buf[BLOCKSIZE];
+    char zeros[BLOCKSIZE];
+    int i;
+    FILE *fp;
+
+    fp = openfs(fsname, "r+b");
+    load_metadata(fp, files, fnodes);
+
+    file_idx = find_file(files, filename);
+    if (file_idx == -1) {
+        fprintf(stderr, "Error: writefile: file not found\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    current_size = files[file_idx].size;
+
+    if (start < 0 || start > current_size) {
+        fprintf(stderr, "Error: writefile: invalid start position (gap)\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    /* Calculate how many blocks we need */
+    new_size = start + length;
+    if (new_size < current_size) {
+        new_size = current_size;
+    }
+
+    if (current_size == 0) {
+        current_blocks = 0;
+    } else {
+        current_blocks = (current_size + BLOCKSIZE - 1) / BLOCKSIZE;
+    }
+
+    if (new_size == 0) {
+        needed_blocks = 0;
+    } else {
+        needed_blocks = (new_size + BLOCKSIZE - 1) / BLOCKSIZE;
+    }
+
+    blocks_to_add = needed_blocks - current_blocks;
+
+    if (blocks_to_add > count_free_blocks(fnodes)) {
+        fprintf(stderr, "Error: writefile: not enough free blocks\n");
+        closefs(fp);
+        exit(1);
+    }
+
+    /* Find the end of the file's block chain */
+    curr = files[file_idx].firstblock;
+    last_ptr = &files[file_idx].firstblock;
+    while (curr != -1) {
+        last_ptr = &fnodes[curr].nextblock;
+        curr = *last_ptr;
+    }
+
+    /* Allocate new blocks */
+    memset(zeros, 0, BLOCKSIZE);
+    for (i = 0; i < blocks_to_add; i++) {
+        free_idx = find_free_fnode(fnodes);
+        fnodes[free_idx].blockindex = free_idx;
+        fnodes[free_idx].nextblock = -1;
+        *last_ptr = free_idx;
+        last_ptr = &fnodes[free_idx].nextblock;
+
+        /* Initialize block to zeros */
+        fseek(fp, free_idx * BLOCKSIZE, SEEK_SET);
+        fwrite(zeros, BLOCKSIZE, 1, fp);
+    }
+
+    /* Skip to the block containing start position */
+    curr = files[file_idx].firstblock;
+    pos = 0;
+    while (pos + BLOCKSIZE <= start) {
+        curr = fnodes[curr].nextblock;
+        pos += BLOCKSIZE;
+    }
+
+    /* Write the data */
+    bytes_left = length;
+    while (bytes_left > 0 && curr != -1) {
+        offset_in_block = start + (length - bytes_left) - pos;
+        bytes_to_write = BLOCKSIZE - offset_in_block;
+        if (bytes_to_write > bytes_left) {
+            bytes_to_write = bytes_left;
+        }
+
+        if (fread(buf, 1, bytes_to_write, stdin) < (size_t)bytes_to_write) {
+            fprintf(stderr, "Error: writefile: not enough input data\n");
+            closefs(fp);
+            exit(1);
+        }
+
+        fseek(fp, fnodes[curr].blockindex * BLOCKSIZE + offset_in_block, SEEK_SET);
+        fwrite(buf, 1, bytes_to_write, fp);
+
+        bytes_left -= bytes_to_write;
+        curr = fnodes[curr].nextblock;
+        pos += BLOCKSIZE;
+    }
+
+    files[file_idx].size = new_size;
+    save_metadata(fp, files, fnodes);
+    closefs(fp);
+}
